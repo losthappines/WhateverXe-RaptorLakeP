@@ -4797,7 +4797,7 @@ void XE::observeRaptorLakeP(IOPCIDevice *pci) {
 	auto edp = RaptorLakeP::readEDP(io, display);
 	pci->setProperty("RPLPEDPBoot", &edp, sizeof(edp));
 	if (barReady) {
-		const auto clock = Display13Clock::observe(io, identity);
+		auto clock = Display13Clock::observe(io, identity);
 		pci->setProperty("RPLPClockBoot", &clock, sizeof(clock));
 	}
 	SYSLOG("igfx", "RaptorLakeP observe rev=%u GT status=%u EU=%u DSS=%u L3 pairs=%x media=%x display=%u powered=%x active=%x eDP=%u dp=%x ddiA=%x; no backend",
@@ -4825,7 +4825,7 @@ void XE::observeRaptorLakeP(IOPCIDevice *pci) {
 		uint64_t admission[] {1, revision, static_cast<uint64_t>(gt.forcewake.status), qualified,
 			mapperOptions, systemMapper, physical, commandBefore, commandBefore};
 		do {
-			if (!barReady || revision != 4 || gt.forcewake.status != AlderLakeN::GTStatus::Complete || !qualified ||
+			if (!barReady || !XELP::identify(identity,revision).admitted() || gt.forcewake.status != AlderLakeN::GTStatus::Complete || !qualified ||
 				!physical || !(commandBefore & 2) || page_size != 4096 || pinnedGPU) break;
 			result.status = uint64_t(AlderLakeN::GPUStatus::BadMemory);
 			if (!aperture || aperture->getLength() != 0x10000000) break;

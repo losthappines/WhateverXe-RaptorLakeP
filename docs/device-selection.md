@@ -10,6 +10,12 @@ IDs are Tiger Lake `9A40`, `9A49`, `9A78` and Alder Lake-N / Twin Lake
 `46D0`–`46D4`. The latter require PCI revision 0. OS, driver and hardware-resource
 checks still apply after selection.
 
+Physical `A7A8` and experimental `A7A9` revision 04 have the opt-in Raptor Lake
+backend. Both require `-wex-rplp-gt`; A7A9 also requires `-wex-rplu-clock` for
+its distinct display-clock table and voltage policy. Their physical identities
+cannot be replaced by a `device-id` override. Fuse, kernel and donor-image
+qualification still apply. A7A9 has not been hardware validated.
+
 Other entries in the table supply identification and display names only. A
 listed ID does not imply an implemented backend or a tested machine. See the
 [compatibility summary](../README.md#compatibility) for the current scope.

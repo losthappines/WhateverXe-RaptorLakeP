@@ -154,7 +154,7 @@ def report(d, linux=None):
             g['status'], g['writes'], g['requestedMask'], g['releasedMask'], g['releaseFailedMask']))
         for off, name in FUSES: print('  fuse %-7s %-20s %#010x' % (hex(off), name, d['registers'].get(off, 0)))
         print('  resources', g['resources'])
-    for key in ('display', 'edp'):
+    for key in ('display', 'edp', 'clock'):
         if key in d: print(key, d[key])
     eDP = [o for o in sorted(d['registers']) if o in NAMES]
     for o in eDP: print('  %-8s %-22s %#010x' % (hex(o), NAMES[o], d['registers'][o]))
