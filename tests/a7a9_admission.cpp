@@ -13,6 +13,8 @@ int main() {
         assert(!identify(0xA7A910DE,rev).admitted());
         assert(!identify(0x12348086,rev,0xA7A98086).admitted());
         assert(!identify(0xA7A98086,rev,0xA7A88086).admitted());
+        assert(!identify(0xA7A98086,rev,0x9A498086).admitted());
+        assert(!identify(0xA7A98086,rev,0x46D08086).admitted());
         assert(!identify(0xA7A88086,rev,0xA7A98086).admitted());
     }
     for (uint32_t id : {0xA7A88086U,0xA7A98086U}) {

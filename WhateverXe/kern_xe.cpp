@@ -4796,6 +4796,10 @@ void XE::observeRaptorLakeP(IOPCIDevice *pci) {
 	pci->setProperty("RPLPDisplay13Boot", &display, sizeof(display));
 	auto edp = RaptorLakeP::readEDP(io, display);
 	pci->setProperty("RPLPEDPBoot", &edp, sizeof(edp));
+	if (barReady) {
+		const auto clock = Display13Clock::observe(io, identity);
+		pci->setProperty("RPLPClockBoot", &clock, sizeof(clock));
+	}
 	SYSLOG("igfx", "RaptorLakeP observe rev=%u GT status=%u EU=%u DSS=%u L3 pairs=%x media=%x display=%u powered=%x active=%x eDP=%u dp=%x ddiA=%x; no backend",
 		revision, static_cast<uint32_t>(gt.forcewake.status), gt.resources.eus, gt.resources.dss,
 		gt.resources.l3BankPairs, gt.forcewake.fuses[4], static_cast<uint32_t>(display.status),

@@ -91,6 +91,12 @@ def decode(props):
         out['edp'] = {'status': EDP_STATUS[w[1]] if w[1] < len(EDP_STATUS) else w[1], 'count': w[2],
                       'dpPipes': w[3], 'ddiAPipes': w[4]}
         for off, val in registers(w, 5, min(w[2], 64)): out['registers'].setdefault(off, val)
+    if 'RPLPClockBoot' in props:
+        w = words(props['RPLPClockBoot'], 12)
+        out['clock'] = dict(zip(['version','status','dssm','pll','control','squash',
+            'refIndex','refKHz','ratio','divider','cdclkKHz','maxKHz'], w))
+        for off, val in zip([0x51004,0x46070,0x46000,0x46008],w[2:6]):
+            out['registers'][off] = val
     # -wex-rplp-gpu (R2 BCS self-test).
     if 'RPLPGPUAdmission' in props:
         out['gpuAdmission'] = dict(zip(['version', 'revision', 'gtStatus', 'qualified', 'mapperOptions', 'systemMapper',

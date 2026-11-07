@@ -109,6 +109,18 @@ template<class IO> Readout read(IO &io) {
     return r;
 }
 
+// Observation can select the physical table without authorizing transitions.
+// This adapter deliberately exposes no write or mailbox operation.
+template<class IO> Readout observe(IO &source,uint32_t physicalPCI) {
+    struct ReadOnly {
+        IO &source; Profile profile;
+        Profile clockProfile() const {return profile;}
+        bool readable(uint32_t reg) {return source.readable(reg);}
+        uint32_t read(uint32_t reg) {return source.read(reg);}
+    } io {source,profileForDevice(physicalPCI,true)};
+    return read(io);
+}
+
 // Display13 PLL/PCODE transition. Caller serializes *all* mailbox clients,
 // holds PW1, owns display clocks, and proves programmed watermarks fit the new
 // clock before changing it. Changed divider / cold start requires every pipe off.

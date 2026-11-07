@@ -34,7 +34,16 @@ struct IO {
     unsigned count(uint32_t reg) const {unsigned n=0;for(auto w:writes)n+=w.first==reg;return n;}
 };
 int main() {
-    for(auto id:{0xA721U,0xA7A1U,0xA7A9U,0xA7ACU,0xA7ADU}) {
+    {
+        IO io;io.enabled=false;
+        assert(observe(io,0xA7A98086).status==Status::Complete);
+        assert(io.reads && io.writes.empty());
+        io.reads=0;
+        assert(observe(io,0xA7A910DE).status==Status::NotReady && !io.reads);
+    }
+    // A721 is absent from this older fork's PCI catalogue; do not admit it here.
+    assert(profileForDevice(0xA7218086,true)==Profile::Unsupported);
+    for(auto id:{0xA7A1U,0xA7A9U,0xA7ACU,0xA7ADU}) {
         assert(profileForDevice((id<<16)|0x8086,false)==Profile::Unsupported);
         assert(profileForDevice((id<<16)|0x8086,true)==Profile::RPLU);
     }

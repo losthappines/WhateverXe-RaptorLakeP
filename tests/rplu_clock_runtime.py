@@ -11,6 +11,7 @@ p.add_argument('--zig', type=Path, help='Optional portable Zig compiler for Wind
 a = p.parse_args()
 root = Path(__file__).resolve().parents[1]
 source = (root / 'WhateverXe/kern_xe.cpp').read_text()
+assert 'Display13Clock::observe(io, identity)' in source
 start = source.index('struct Display13FBClockIO {')
 adapter = source[start:source.index('// Owner IOLock', start)]
 early_start = source.index('Display13Clock::Readout XE::adlnClockReadout(')

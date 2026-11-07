@@ -16,6 +16,7 @@ struct Profile {
     bool overridden() const {return identity!=effectiveIdentity;}
     bool admitted() const {return (identity&0xFFFF)==0x8086 && revision<=255 &&
         donor==Donor::C004FC1A && gt!=GT::Unknown &&
+        ((identity!=0xA7A88086 && identity!=0xA7A98086) || !overridden()) &&
         (family!=Family::AlderLakeN || revision==0) &&
         (family!=Family::RaptorLakeP || (revision==4 && !overridden() &&
          (identity==0xA7A88086 || identity==0xA7A98086)));}
