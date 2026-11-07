@@ -2,6 +2,8 @@
 
 ## 0.3.0
 
+- Add experimental physical A7A9 revision 04 admission and capability reply adaptation. Require the Raptor Lake-U clock opt-in; retain exact fuse and OS/driver ABI qualification. Hardware acceleration on A7A9 is not yet validated.
+
 Xe-LP graphics compatibility for the configurations described in the [README](https://github.com/b00t0x/WhateverXe#compatibility).
 
 - One WEX binary supports Big Sur through Tahoe on the implemented Tiger Lake and Alder Lake-N / Twin Lake backends.

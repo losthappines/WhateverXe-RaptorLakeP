@@ -14,9 +14,9 @@ code=r'''
 #include <vector>
 #include <algorithm>
 #include "kern_xelp_platform.hpp"
-std::vector<int> events;bool publish=true,published=false,observeArgument=false,gtArgument=false;uint32_t identity=0x9a498086;uint8_t revision=0;
+std::vector<int> events;bool publish=true,published=false,observeArgument=false,gtArgument=false,clockArgument=false;uint32_t identity=0x9a498086;uint8_t revision=0;
 bool checkKernelArgument(const char *name){return (observeArgument && !strcmp(name,"-wex-rplp-observe")) ||
- (gtArgument && !strcmp(name,"-wex-rplp-gt"));}
+ (gtArgument && !strcmp(name,"-wex-rplp-gt")) || (clockArgument && !strcmp(name,"-wex-rplu-clock"));}
 struct Object {virtual ~Object()=default;};
 struct OSData:Object {uint32_t value=0;void *getBytesNoCopy(){return &value;}size_t getLength(){return 4;}};
 OSData fake;Object customModel;bool hasModel=false;unsigned modelWrites=0;Object *deviceProperty=nullptr;
@@ -69,6 +69,16 @@ for(unsigned firmware=0;firmware<2;++firmware)for(unsigned me=0;me<5;++me)for(un
  else if(rpl){const bool observed=test==7 || test==10;assert(!host.active&&graphics.off&&!std::count(events.begin(),events.end(),8));
   assert(events.size()==(observed?5U:4U));assert((events[3]==6)==observed);}
  else {assert(host.active&&!graphics.off);assert(events.front()==1);assert(events[events.size()-2]==8);}
+}
+for(unsigned flags=0;flags<8;++flags)for(unsigned rev : {3U,4U,5U}) {
+ events.clear();published=false;publish=true;identity=0xa7a98086;revision=rev;deviceProperty=nullptr;
+ observeArgument=flags&1;gtArgument=flags&2;clockArgument=flags&4;graphics.off=false;
+ DeviceInfo::value.videoBuiltin=&gpu;DeviceInfo::value.managementEngine=nullptr;
+ XeHost host;host.processKernel(patcher);
+ const bool active=rev==4 && gtArgument && clockArgument;
+ assert(host.active==active);
+ assert(bool(std::count(events.begin(),events.end(),8))==active);
+ assert(bool(std::count(events.begin(),events.end(),6))==(!active && observeArgument));
 }
 puts("PASS actual host admission: absent/unpublished/unsupported GPUs never enter Xe; published PCI reads precede selected-driver dispatch; RPL-P admission (rev 4 + -wex-rplp-gt) and observation are opt-in");}
 '''

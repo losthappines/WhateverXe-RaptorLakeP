@@ -1,19 +1,51 @@
-// ADL-N Display D0 clock readout. Linux v6.12 intel_cdclk.c's non-A-step
-// adlp_cdclk_table and bxt_get_cdclk are the hardware reference. This does
-// keeps the donor Hz ABI separate from the Linux CDCLK frequency. Transitions
+// Display13 clock readout. Linux v6.12 intel_cdclk.c's non-A-step
+// adlp_cdclk_table, rplu_cdclk_table and bxt_get_cdclk are the hardware reference.
+// Keep the donor Hz ABI separate from the Linux CDCLK frequency. Transitions
 // below require caller-owned clocks, serialized PCODE and qualified consumers.
 #ifndef kern_display13_clock_hpp
 #define kern_display13_clock_hpp
 #include <stdint.h>
+#include "kern_xelp_devices.hpp"
 
 namespace Display13Clock {
 constexpr uint32_t DSSM=0x51004, PLL=0x46070, Control=0x46000, Squash=0x46008;
 struct Entry {uint32_t ref,frequency,ratio;};
+enum class Profile : uint32_t {ADLP, RPLU, Unsupported};
+inline Profile profileForDevice(uint32_t physicalPCI, bool allowRplu) {
+    const auto device=XELP::deviceEntry(physicalPCI);
+    if(!device || device->display!=XELP::Display::XeLPD)return Profile::Unsupported;
+    switch(physicalPCI>>16) {
+        case 0xA721: case 0xA7A1: case 0xA7A9: case 0xA7AC: case 0xA7AD:
+            return allowRplu ? Profile::RPLU : Profile::Unsupported;
+        default: return Profile::ADLP;
+    }
+}
+// Legacy CPU fixtures/ADL-only adapters keep their existing clock profile.
+// Runtime clock adapters provide a profile from the physical PCI identity.
+template<class IO> auto ioProfile(const IO &io,int) -> decltype(io.clockProfile()) {return io.clockProfile();}
+template<class IO> Profile ioProfile(const IO &,long) {return Profile::ADLP;}
 static constexpr Entry table[] {
     {19200,172800,27},{19200,192000,20},{19200,307200,32},{19200,556800,58},{19200,652800,68},
     {24000,176000,22},{24000,192000,16},{24000,312000,26},{24000,552000,46},{24000,648000,54},
     {38400,179200,14},{38400,192000,10},{38400,307200,16},{38400,556800,29},{38400,652800,34}
 };
+// Linux v6.12 rplu_cdclk_table: 480 MHz is RPL-U-only. Never expose this
+// entry to ADLP callers by appending it to their shared table.
+static constexpr Entry rpluTable[] {
+    {19200,172800,27},{19200,192000,20},{19200,307200,32},{19200,480000,50},{19200,556800,58},{19200,652800,68},
+    {24000,176000,22},{24000,192000,16},{24000,312000,26},{24000,480000,40},{24000,552000,46},{24000,648000,54},
+    {38400,179200,14},{38400,192000,10},{38400,307200,16},{38400,480000,25},{38400,556800,29},{38400,652800,34}
+};
+struct Entries {
+    const Entry *first,*last;
+    const Entry *begin() const {return first;}
+    const Entry *end() const {return last;}
+};
+inline Entries entries(Profile profile) {
+    if(profile==Profile::RPLU)return {rpluTable,rpluTable+sizeof(rpluTable)/sizeof(*rpluTable)};
+    if(profile==Profile::ADLP)return {table,table+sizeof(table)/sizeof(*table)};
+    return {table,table};
+}
 enum class Status : uint32_t {
     NotReady, Unavailable, UnsupportedReference, Disabled, Unlocked,
     UnsupportedSquash, UnsupportedFrequency, DecimalMismatch, Changed, Complete
@@ -30,8 +62,9 @@ struct Readout {
 };
 static_assert(sizeof(Readout)==12*4,"Display13 CDCLK readout layout");
 
-inline Readout decode(uint32_t dssm,uint32_t pll,uint32_t control,uint32_t squash) {
+inline Readout decode(uint32_t dssm,uint32_t pll,uint32_t control,uint32_t squash,Profile profile=Profile::ADLP) {
     Readout r; r.dssm=dssm;r.pll=pll;r.control=control;r.squash=squash;
+    if(profile==Profile::Unsupported)return r;
     if(dssm==UINT32_MAX || pll==UINT32_MAX || control==UINT32_MAX || squash==UINT32_MAX) {
         r.status=Status::Unavailable;return r;
     }
@@ -39,7 +72,7 @@ inline Readout decode(uint32_t dssm,uint32_t pll,uint32_t control,uint32_t squas
     const uint32_t references[] {24000,19200,38400};
     if(r.refIndex>=3) {r.status=Status::UnsupportedReference;return r;}
     r.refKHz=references[r.refIndex];r.ratio=pll&0xFF;
-    for(const auto &e:table)if(e.ref==r.refKHz && e.frequency>r.maxKHz)r.maxKHz=e.frequency;
+    for(const auto &e:entries(profile))if(e.ref==r.refKHz && e.frequency>r.maxKHz)r.maxKHz=e.frequency;
     if(!(pll&(1U<<31))) {r.status=Status::Disabled;return r;}
     if(!(pll&(1U<<30))) {r.status=Status::Unlocked;return r;}
     // ADLP's supported table has no squash waveforms. Do not interpret a
@@ -50,7 +83,7 @@ inline Readout decode(uint32_t dssm,uint32_t pll,uint32_t control,uint32_t squas
     const uint32_t vco=r.refKHz*r.ratio;
     r.cdclkKHz=(vco+r.divider/2)/r.divider;
     bool found=false;
-    for(const auto &e:table) if(e.ref==r.refKHz) {
+    for(const auto &e:entries(profile)) if(e.ref==r.refKHz) {
         if(e.frequency>r.maxKHz)r.maxKHz=e.frequency;
         if(e.ratio==r.ratio && e.frequency==r.cdclkKHz)found=true;
     }
@@ -64,10 +97,12 @@ inline Readout decode(uint32_t dssm,uint32_t pll,uint32_t control,uint32_t squas
 
 template<class IO> Readout read(IO &io) {
     Readout r;
+    const auto profile=ioProfile(io,0);
+    if(profile==Profile::Unsupported)return r;
     const uint32_t registers[] {DSSM,PLL,Control,Squash};
     for(auto reg:registers) if(!io.readable(reg))return r;
     const auto dssm=io.read(DSSM),pll=io.read(PLL),control=io.read(Control),squash=io.read(Squash);
-    r=decode(dssm,pll,control,squash);
+    r=decode(dssm,pll,control,squash,profile);
     // A concurrent clock transition must not publish a mixed native value.
     if(io.read(DSSM)!=dssm || io.read(PLL)!=pll || io.read(Control)!=control || io.read(Squash)!=squash)
         r.status=Status::Changed;
@@ -101,23 +136,23 @@ inline bool declined(const Change &r) {
     return !r.writes && (r.status==ChangeStatus::ActiveDividerChange || r.status==ChangeStatus::OwnershipRequired ||
         r.status==ChangeStatus::WatermarksRequired || r.status==ChangeStatus::InvalidFrequency);
 }
-inline bool plan(uint32_t reference,uint64_t nativeHz,uint32_t &ratio,uint32_t &divisor,uint32_t &control) {
-    for(const auto &e:table) if(e.ref==reference && uint64_t(e.frequency)*2000==nativeHz) {
+inline bool plan(uint32_t reference,uint64_t nativeHz,uint32_t &ratio,uint32_t &divisor,uint32_t &control,Profile profile=Profile::ADLP) {
+    for(const auto &e:entries(profile)) if(e.ref==reference && uint64_t(e.frequency)*2000==nativeHz) {
         ratio=e.ratio;divisor=e.ref*e.ratio/e.frequency;
         control=(divisor==3 ? 1U<<22:0U)|0x380000|((2*e.frequency+500)/1000-2);
         return true;
     }
     return false;
 }
-inline uint32_t voltage(uint32_t cdclkKHz) {
-    return cdclkKHz<=312000 ? 0:cdclkKHz<=326400 ? 1:cdclkKHz<=556800 ? 2:3;
+inline uint32_t voltage(uint32_t cdclkKHz,Profile profile=Profile::ADLP) {
+    return cdclkKHz<=312000 ? 0:cdclkKHz<=(profile==Profile::RPLU ? 480000U:326400U) ? 1:cdclkKHz<=556800 ? 2:3;
 }
 // calculateCDClockFrequency's HDMI branch requests the maximum table entry.
 // The other branch takes a pixel-clock lower bound, with a strict comparison
 // at table thresholds. Return an actual Display D0 entry in the donor's Hz ABI.
-inline uint64_t select(uint32_t reference,uint64_t minimumHz,bool external) {
+inline uint64_t select(uint32_t reference,uint64_t minimumHz,bool external,Profile profile=Profile::ADLP) {
     uint64_t selected=0;
-    for(const auto &e:table)if(e.ref==reference) {
+    for(const auto &e:entries(profile))if(e.ref==reference) {
         const auto hz=uint64_t(e.frequency)*2000;
         if(external)selected=hz;
         else if(hz>minimumHz)return hz;
@@ -162,11 +197,12 @@ template<class IO> bool mailbox(IO &io,Change &r,uint32_t data,unsigned budgetUs
     return true;
 }
 template<class IO> Change set(IO &io,uint64_t nativeHz,Conditions conditions) {
+    const auto profile=ioProfile(io,0);
     Change r;r.requestedHz=nativeHz;r.before=read(io);
     if(r.before.status!=Status::Complete && r.before.status!=Status::Disabled)return r;
     if(r.before.squash&(1U<<31))return r;
     uint32_t ratio=0,divisor=0,control=0;
-    if(!plan(r.before.refKHz,nativeHz,ratio,divisor,control)) {r.status=ChangeStatus::InvalidFrequency;return r;}
+    if(!plan(r.before.refKHz,nativeHz,ratio,divisor,control,profile)) {r.status=ChangeStatus::InvalidFrequency;return r;}
     if(r.before.status==Status::Complete && r.before.nativeHz()==nativeHz) {
         r.after=read(io);
         r.status=r.after.status==Status::Complete && r.after.nativeHz()==nativeHz ? ChangeStatus::Complete:ChangeStatus::ReadbackMismatch;
@@ -220,7 +256,7 @@ template<class IO> Change set(IO &io,uint64_t nativeHz,Conditions conditions) {
     // proof must not lower voltage or attempt an unproven rollback.
     r.after=read(io);
     if(r.after.status!=Status::Complete || r.after.nativeHz()!=nativeHz) {r.status=ChangeStatus::ReadbackMismatch;return r;}
-    if(!mailbox(io,r,voltage(r.after.cdclkKHz)))return r;
+    if(!mailbox(io,r,voltage(r.after.cdclkKHz,profile)))return r;
     r.after=read(io);
     r.status=r.after.status==Status::Complete && r.after.nativeHz()==nativeHz ? ChangeStatus::Complete:ChangeStatus::ReadbackMismatch;
     return r;
@@ -230,6 +266,7 @@ template<class IO> Change set(IO &io,uint64_t nativeHz,Conditions conditions) {
 // Follow icl_cdclk_pll_disable and the Display >=12 bypass control, including
 // PCODE prepare/final voltage. Never report a disabled PLL before LOCK clears.
 template<class IO> Change stop(IO &io,Conditions conditions) {
+    const auto profile=ioProfile(io,0);
     Change r;r.before=read(io);
     if(r.before.status!=Status::Complete && r.before.status!=Status::Disabled)return r;
     if((r.before.squash&(1U<<31)) || (r.before.pll&0xC00000))return r;
@@ -265,7 +302,7 @@ template<class IO> Change stop(IO &io,Conditions conditions) {
        r.after.control!=(0x380000|((2*bypass+500)/1000-2)) || r.after.dssm!=r.before.dssm) {
         r.status=ChangeStatus::ReadbackMismatch;return r;
     }
-    if(!mailbox(io,r,voltage(bypass)))return r;
+    if(!mailbox(io,r,voltage(bypass,profile)))return r;
     r.after=read(io);
     r.status=r.after.status==Status::Disabled && !(r.after.pll&0xC0000000) &&
         r.after.control==(0x380000|((2*bypass+500)/1000-2)) && r.after.dssm==r.before.dssm ?

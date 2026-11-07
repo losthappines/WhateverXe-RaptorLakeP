@@ -2,6 +2,8 @@
 
 [English](README.md)
 
+A7A9 リビジョン 04（Raptor Lake-U、64 EU）は実験対象です。ネイティブ経路には `-wex-rplp-gt` と `-wex-rplu-clock` の両方が必要です。観測には不要です。後者は物理 PCI ID に基づいて Linux の Raptor Lake-U ディスプレイクロック表と電圧制限を選択します。ヒューズとドライバの厳密な検査は維持します。A7A9 の実機検証は未実施で、以下の参照機の結果は A7A8 のみです。
+
 [WhateverXe](https://github.com/b00t0x/WhateverXe)のforkです。Intel **Raptor Lake-P**内蔵GPUのmacOS対応を目指しています。
 対象は第13世代Core H／P／Uシリーズのノート向けCPUに搭載されたUHD／Iris Xe Graphicsと、ノートPCの内蔵ディスプレイ（eDP）です。
 

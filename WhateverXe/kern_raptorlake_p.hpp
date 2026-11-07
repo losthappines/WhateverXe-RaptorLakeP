@@ -1,6 +1,6 @@
 // RPL-P/RPL-U identity, read-only GT/eDP evidence and the opt-in BCS self-test.
-// RaptorLakeP stays catalogued without a GT backend, so XELP admission, DVMT,
-// donor start and every Display 13 write path remain off. Observation writes
+// A7A8/A7A9 revision 4 can request the GT backend; recognition alone does not
+// authorize it. Observation writes
 // only AlderLakeN::readGT's balanced forcewake request/release; the self-test
 // (qualifiedGT, leaseGPU, AlderLakeN::testGPU) also writes its leased PTEs and
 // BCS engine registers.
@@ -232,7 +232,7 @@ inline Status adapt(uint8_t *reply, uint64_t size, int result, bool enabled, uin
     if (!enabled) return Status::Disabled;
     if (result != 0) return Status::Error;
     if (!reply || size != Size) return Status::BadSize;
-    if (identity(reply) != Physical) return Status::NotA7A8;
+    if (identity(reply) != Physical && identity(reply) != 0xA7A98086) return Status::NotA7A8;
     reply[10] = uint8_t(presented >> 16); reply[11] = uint8_t(presented >> 24);
     return Status::Rewritten;
 }

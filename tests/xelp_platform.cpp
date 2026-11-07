@@ -14,7 +14,7 @@ struct IO {
 int main() {
  for(uint32_t id=0;id<65536;++id)for(unsigned rev:{0U,1U,4U,255U}) {
   const auto p=identify((id<<16)|0x8086,rev);
-  const bool tgl=id==0x9A40 || id==0x9A49 || id==0x9A78,adln=id>=0x46D0 && id<=0x46D4,rplp=id==0xA7A8;
+  const bool tgl=id==0x9A40 || id==0x9A49 || id==0x9A78,adln=id>=0x46D0 && id<=0x46D4,rplp=(id==0xA7A8 || id==0xA7A9);
   assert(p.admitted()==(tgl || (adln && rev==0) || (rplp && rev==4)));
   assert(!adln || p.display==Display::XeLPD);
   // The donor URB/L3 site takes measured counts on ADL-N and the RPL-P part only.

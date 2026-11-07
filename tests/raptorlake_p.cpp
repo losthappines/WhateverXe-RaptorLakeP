@@ -87,9 +87,9 @@ int main() {
         assert(RaptorLakeP::family(pci)==rpl);
         if(!rpl)continue;
         ++catalogued;
-        // Only the measured A7A8 has a backend, admitted at revision 4 (GT C0 / display E0) alone.
+        // A7A8 and experimental A7A9 share the backend at revision 4 (GT C0 / display E0).
         // The rest stay recognition only: no GT backend, donor, admission or probe ABI.
-        const bool measured=entry.device==0xA7A8;
+        const bool measured=(entry.device==0xA7A8 || entry.device==0xA7A9);
         for(uint32_t revision:{0U,3U,4U,5U,8U,12U}) {
             const auto p=XELP::identify(pci,revision);
             assert(p.display==XELP::Display::XeLPD && p.gt==(measured ? XELP::GT::RPLPMedium : XELP::GT::Unknown));
@@ -107,7 +107,7 @@ int main() {
     for(uint32_t revision:{0U,1U,3U,5U,8U,12U,255U}) {
         step=RaptorLakeP::stepping(revision);assert(!step.gt && !step.display);
     }
-    std::puts("RaptorLakeP catalogue: A7A8 rev 4 admitted alone, others recognition only, Linux revision-4 steppings passed");
+    std::puts("RaptorLakeP catalogue: A7A8/A7A9 rev 4 admitted, others recognition only, Linux revision-4 steppings passed");
 
     RaptorLakeP::Resources res;
     assert(RaptorLakeP::resources(1,0xf,0,0,0xe00fa,res));

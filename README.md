@@ -2,6 +2,8 @@
 
 [日本語](README_ja.md)
 
+A7A9 revision 04 (Raptor Lake-U, 64 EU) is an experimental target. Native admission requires both `-wex-rplp-gt` and `-wex-rplu-clock`; observation remains available without them. The latter selects the Linux Raptor Lake-U display-clock table and voltage limits from the physical PCI identity. Exact fuse and driver guards remain required. A7A9 has not been hardware validated; the reference-machine results below apply to A7A8 only.
+
 A fork of [WhateverXe](https://github.com/b00t0x/WhateverXe) working toward macOS support for Intel
 **Raptor Lake-P** integrated graphics: the UHD and Iris Xe GPUs in 13th-generation Core H, P and U laptop
 processors, including the laptop's internal (eDP) panel.

@@ -1,4 +1,5 @@
 {
+  "-wex-rplu-clock": [],
   "-wex-adln-config-stage": [
     "-adlnconfigstage",
     "-n97configstage"

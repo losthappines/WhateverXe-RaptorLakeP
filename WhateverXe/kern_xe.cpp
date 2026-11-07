@@ -5407,6 +5407,11 @@ struct Display13FBDBUFIO {
 
 struct Display13FBClockIO {
 	IOMemoryMap *map;
+	Display13Clock::Profile clockProfile() const {
+		return xelpSelectedDevice(xelpSelectedGPU) ?
+			Display13Clock::profileForDevice(xelpSelectedProfile.identity,checkKernelArgument("-wex-rplu-clock")) :
+			Display13Clock::Profile::Unsupported;
+	}
 	bool readable(uint32_t r) const {
 		return map && map->getLength()==0x1000000 && map->getVirtualAddress() &&
 			(r==Display13Clock::DSSM || r==Display13Clock::PLL || r==Display13Clock::Control || r==Display13Clock::Squash ||
@@ -8584,12 +8589,15 @@ Display13Clock::Readout XE::adlnClockReadout(IOService *controller) {
 		if(map && map->getLength()==0x1000000 && map->getPhysicalAddress()==physical && map->getVirtualAddress()) {
 			struct IO {
 				uintptr_t base;
+				Display13Clock::Profile profile;
+				Display13Clock::Profile clockProfile() const {return profile;}
 				bool readable(uint32_t reg) const {
 					return base && (reg==Display13Clock::DSSM || reg==Display13Clock::PLL ||
 						reg==Display13Clock::Control || reg==Display13Clock::Squash);
 				}
 				uint32_t read(uint32_t reg) const {return *reinterpret_cast<volatile uint32_t *>(base+reg);}
-			} io {static_cast<uintptr_t>(map->getVirtualAddress())};
+			} io {static_cast<uintptr_t>(map->getVirtualAddress()),
+				Display13Clock::profileForDevice(pci->configRead32(0),checkKernelArgument("-wex-rplu-clock"))};
 			r=Display13Clock::read(io);
 		}
 		OSSafeReleaseNULL(map);
@@ -8843,7 +8851,7 @@ uint64_t XE::wrapAlderLakeNClockCalculate(IOService *controller,uint64_t minimum
 		Display13FBClockIO io {c.map};const auto clock=Display13Clock::read(io);
 		if(clock.status==Display13Clock::Status::Complete || (c.clockStopped && clock.status==Display13Clock::Status::Disabled)) {
 			const bool external=reinterpret_cast<bool (*)(IOService *)>(callbackXE->adlnHasExternalDisplay)(controller);
-			selected=Display13Clock::select(clock.refKHz,minimumHz,external);
+			selected=Display13Clock::select(clock.refKHz,minimumHz,external,io.clockProfile());
 			record[3]=external;record[4]=clock.refKHz;
 			if(selected)*reinterpret_cast<uint64_t *>(reinterpret_cast<uint8_t *>(controller)+0xEA0)=selected;
 		}

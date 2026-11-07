@@ -29,7 +29,7 @@ int main(int argc,char **argv) {
  const bool legacy=!strncmp(argv[1],"adln-abi1",9);
  const bool fake=strstr(argv[1],"fake")!=nullptr;
  const bool rejected=!strcmp(argv[1],"unknown") || !strcmp(argv[1],"adln-revision");
- const bool rplp=!strcmp(argv[1],"rplp"); // The built-in eDP panel policy.
+ const bool rplp=(!strcmp(argv[1],"rplp") || !strcmp(argv[1],"rplu")); // The built-in eDP panel policy.
  IOService controller;IOPCIDevice pci;OSObject access,port,foreign;IOMemoryMap map;
  std::vector<uint8_t> mmio(0x1000000);alignas(8) uint8_t platform[0x1C0] {};
  pci.identity=adln?0x46D18086:0x9A498086;
@@ -38,7 +38,7 @@ int main(int argc,char **argv) {
  if(!strcmp(argv[1],"adln-16eu"))pci.identity=0x46D28086;
  if(!strcmp(argv[1],"unknown"))pci.identity=0x46A68086;
  if(!strcmp(argv[1],"adln-revision"))pci.revision=1;
- if(rplp){pci.identity=0xA7A88086;pci.revision=4;}
+ if(rplp){pci.identity=!strcmp(argv[1],"rplu")?0xA7A98086:0xA7A88086;pci.revision=4;}
  OSData fakeID;
  if(fake){pci.identity=0x12348086;fakeID.value=adln?0x46D2:0x9A49;pci.property=&fakeID;}
  controller.provider=&pci;platform[0x12]=9;

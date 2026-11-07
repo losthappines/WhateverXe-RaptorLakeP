@@ -29,7 +29,8 @@ void XeHost::processKernel(KernelPatcher &patcher) {
  const bool published=gpu && WIOKit::awaitPublishing(gpu);
  const auto profile=published ? XELP::deviceProfile(gpu) : XELP::Profile {};
  // The Raptor Lake-P backend is under development: admitted only on request.
- active=profile.admitted() && (profile.family!=XELP::Family::RaptorLakeP || checkKernelArgument("-wex-rplp-gt"));
+ active=profile.admitted() && (profile.family!=XELP::Family::RaptorLakeP || checkKernelArgument("-wex-rplp-gt")) &&
+  (profile.identity!=0xA7A98086 || checkKernelArgument("-wex-rplu-clock"));
  if(published) {
   uint32_t selection[] {1,profile.identity,profile.revision,profile.effectiveIdentity,
    static_cast<uint32_t>(profile.family),static_cast<uint32_t>(profile.display),
