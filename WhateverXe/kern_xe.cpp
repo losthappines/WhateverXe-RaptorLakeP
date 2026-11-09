@@ -4232,6 +4232,7 @@ void XE::adlnBootstrap(IOPCIDevice *pci) {
 			adlnNativeRequested ? &edram : nullptr,adlpRenderRequested ? XELP::decodeADLPGT : nullptr);
 		if (adlnNativeRequested) {
             adlnNativeSubslices=gt.resources.nativeSubslices; adlnL3Banks=gt.resources.l3Banks; adlnNativeEUs=gt.resources.eus;
+            adlnVideoMask=(~gt.fuses[4])&0xFF;
             renderReady=gt.status==AlderLakeN::GTStatus::Complete && !(edram&1);
             pci->setProperty("N97NativeEDRAM",edram,32);
 		}
@@ -7629,8 +7630,11 @@ uint8_t *XE::display13SSTPort(void *port) {
  auto p=static_cast<uint8_t *>(port);auto config=Display13FBMemory::field<uint32_t *>(p,0x548);
  if(!Display13FBTopology::selected(s->adlnPlatform,config,s->adlnOutputWiring) ||
     !(s->adlnOutputWiring.links()&(1U<<config[0])) || p[0x117] ||
-    Display13FBMemory::field<uint32_t>(p,0x120)!=config[0] || Display13FBMemory::field<uint32_t>(p,0x550)!=(config[0]>=3?((s->adlnOutputWiring.typeC&(1U<<config[0]))?3U:4U):1U) ||
+    Display13FBMemory::field<uint32_t>(p,0x120)!=config[0] ||
     Display13FBMemory::field<void *>(p,0x578)!=c.access)return nullptr;
+ const auto mode=Display13FBMemory::field<uint32_t>(p,0x550);
+ const bool bootPanel=config[0]<2 && !c.bridge.bootAdopted && config[0]==c.bridge.bootPort && (s->adlnOutputWiring.panel&(1U<<config[0]))!=0;
+ if(config[0]>=3 ? mode!=((s->adlnOutputWiring.typeC&(1U<<config[0]))?3U:4U) : (mode!=1U && !(bootPanel && mode==0U)))return nullptr;
  return p;
 }
 
@@ -14798,6 +14802,16 @@ void XE::wrapAlderLakeNNativeGPUInfo(IOService *that) {
 	tglObserveAccelerator(that,8,false,0,0);
 	FunctionCast(wrapAlderLakeNNativeGPUInfo,callbackXE->orgAlderLakeNNativeGPUInfo)(that);
 	auto a=reinterpret_cast<uint8_t *>(that);
+	// On VCS2-only hardware (video mask 4), VDBOX0 is fused off, leaving VCS0
+	// (bit 3) cleared while VCS2 (bit 4) and VECS0 (bit 5) remain set at +0x1300.
+	// SafeForceWakeMultithreaded(MEDIA) polls FORCEWAKE_ACK_MEDIA_VDBOX_GEN11(2)
+	// at 0xD54 instead of 0xD58 (kIGHwCsDesc[4]+0x75), causing a 30s timeout and
+	// hard lockup during startGraphicsEngine. Clear media engines on VCS2-only
+	// hardware unless -wex-vcs2-media is explicitly requested.
+	if (callbackXE->adlpRenderRequested && callbackXE->adlnVideoMask==4 &&
+	    !checkKernelArgument("-wex-vcs2-media")) {
+		*reinterpret_cast<uint64_t *>(a+0x1300)&=~0x38ULL;
+	}
 	const uint64_t profile=uint64_t(*reinterpret_cast<uint32_t *>(a+0x1124))<<32 |
 		*reinterpret_cast<uint32_t *>(a+0x1164);
 	tglObserveAccelerator(that,8,true,profile,*reinterpret_cast<uint32_t *>(a+0x1190));

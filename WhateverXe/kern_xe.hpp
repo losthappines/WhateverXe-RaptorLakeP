@@ -148,7 +148,7 @@ private:
     void xelpReadFirmware(IOPCIDevice *pci);
     void xelpLoadDisplayPool(IOService *provider);
     bool xelpInstallHostRPS(KernelPatcher &,size_t,mach_vm_address_t,size_t);
-    uint32_t adlnNativeSubslices {}, adlnL3Banks {}, adlnNativeEUs {};
+    uint32_t adlnNativeSubslices {}, adlnL3Banks {}, adlnNativeEUs {}, adlnVideoMask {};
 	bool adlnKernelReady {false};
 	bool adlnNativeRequested {false};
     // Display handoff needs GOP/GGTT, mapper and aperture qualification,

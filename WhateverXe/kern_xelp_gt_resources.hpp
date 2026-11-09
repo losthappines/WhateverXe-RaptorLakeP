@@ -45,7 +45,7 @@ inline bool decodeADLPGT(const uint32_t *fuses, GTResources &out) {
     for(unsigned i=0;i<5;++i)if(fuses[i]==UINT32_MAX)return false;
     const auto slice=fuses[0]&0xFF,mask=fuses[1]&0x3F;
     const auto video=(~fuses[4])&0xFF,enhance=((~fuses[4])>>16)&0xF;
-    if(slice!=1 || !mask || (video!=1 && video!=5) || enhance!=1)return false;
+    if(slice!=1 || !mask || (video!=1 && video!=4 && video!=5) || enhance!=1)return false;
     const auto dss=static_cast<uint32_t>(__builtin_popcount(mask));
     const auto perDSS=2*(8-static_cast<uint32_t>(__builtin_popcount(fuses[2]&0xFF)));
     const auto banks=8-static_cast<uint32_t>(__builtin_popcount(fuses[3]&0xFF));

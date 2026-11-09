@@ -10,6 +10,12 @@ int main() {
     uint32_t f[]={1,0x3f,0,0,0xe00fa};GTResources r;
     assert(decodeADLPGT(f,r) && r.dss==6 && r.nativeSubslices==12 && r.eus==96 && r.l3Banks==8 && r.urbKiB==512);
     assert(!decodeSmallGT(f,r));
+    // Hardware captures: A7A9 (4 DSS, 64 EU, 6 L3 banks, VCS2-only) and 46A3 (3 DSS, 48 EU, 6 L3 banks, VCS2-only).
+    uint32_t a7a9[]={1,0x0f,0,0x44,0xe00fb},adl46a3[]={1,0x07,0,0x44,0xe00fb};
+    assert(decodeADLPGT(a7a9,r) && r.dss==4 && r.nativeSubslices==8 && r.eus==64 && r.l3Banks==6 && r.urbKiB==384);
+    assert(decodeADLPGT(adl46a3,r) && r.dss==3 && r.nativeSubslices==6 && r.eus==48 && r.l3Banks==6 && r.urbKiB==384);
+    assert(!decodeSmallGT(a7a9,r) && !decodeSmallGT(adl46a3,r));
+    for(unsigned badVideo:{0U,2U,3U,6U,7U}){uint32_t bv[]={1,0x0f,0,0x44,0xe0000U|(~badVideo&0xffU)};assert(!decodeADLPGT(bv,r));}
     for(unsigned mask=1;mask<64;++mask)for(unsigned eu=0;eu<256;++eu)for(unsigned l3=0;l3<256;++l3) {
         uint32_t v[]={1,mask,eu,l3,0xe00fa};
         const auto per=2*(8-__builtin_popcount(eu)),banks=8-__builtin_popcount(l3);

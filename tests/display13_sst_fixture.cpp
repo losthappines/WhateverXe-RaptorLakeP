@@ -355,6 +355,22 @@ int main(int argc,char **argv){
   assert(c.bridge.getAUX(io,survivor).status==Status::Complete&&c.bridge.putAUX(io,survivor).status==Status::Complete);
   assert(!XE::wrapDisplay13DisablePort(ports[survivor])&&objectRefs.empty());
  }
+ // Boot-handoff internal eDP panel leaves software port mode unset (0) before
+ // native setPortMode runs. Admit mode 0 only for the un-adopted boot panel.
+ for(unsigned ddi=0;ddi<2;++ddi){
+  Fixture f(0,0,ddi);Map map;setup(f,map,ddi,0,2,10,true);auto &c=display13FBPower;
+  c.bridge.bootAdopted=false;c.bridge.bootPort=ddi;
+  put(f.port,0x550,0U);
+  assert(XE::display13SSTPort(f.port)==f.port);
+  put(f.port,0x550,2U);assert(!XE::display13SSTPort(f.port));
+  put(f.port,0x550,3U);assert(!XE::display13SSTPort(f.port));
+  put(f.port,0x550,0U);
+  c.bridge.bootAdopted=true;assert(!XE::display13SSTPort(f.port));c.bridge.bootAdopted=false;
+  c.bridge.bootPort=1-ddi;assert(!XE::display13SSTPort(f.port));c.bridge.bootPort=ddi;
+  state.adlnOutputWiring.panel=0;state.adlnOutputWiring.dp=1U<<ddi;
+  assert(Display13FBTopology::apply(f.platform,sizeof(f.platform),f.donor,state.adlnOutputWiring));
+  assert(!XE::display13SSTPort(f.port));
+ }
  printf("PASS production Display13 signal/SST: %u compositions after peer release, 39 admission/power/MMIO faults, native error/power-loss/HDMI preservation\n",count);
  puts("PASS main-link AUX: transaction independence, 720 repeated-enable/stop cycles, partial failure/idle timeout/foreign owner guards");
  if(image){munmap(image,0x400000);printf("PASS %u exact native pattern/framing calls and unmodified donor counterexamples; %u native port enable/disable calls\n",replays,portReplays);}
