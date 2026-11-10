@@ -11730,6 +11730,61 @@ bool XE::processTGLAccelerator(KernelPatcher &patcher, size_t index, mach_vm_add
 					}
 					IORegistryEntry::getRegistryRoot()->setProperty("WEXVCS2MediaNullGuardReady",vcs2Safe);
 					adlnObserved=adlnObserved && vcs2Safe;
+
+					// Option B: Remap media engine to VCS2 (engine 4, subEngineIndex 2)
+					if (!checkKernelArgument("-wex-no-vcs2-media")) {
+						const uint8_t engineTestFind[] {0x41,0xF6,0x85,0x00,0x13,0x00,0x00,0x08};
+						const uint8_t engineTestReplace[] {0x41,0xF6,0x85,0x00,0x13,0x00,0x00,0x18};
+						const uint8_t vcs2ParamFind[] {0x03,0x00,0x08,0x00,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00};
+						const uint8_t vcs2ParamReplace[] {0x04,0x00,0x08,0x00,0x01,0x00,0x00,0x00,0x02,0x00,0x00,0x00};
+
+						auto engineTestSite=reinterpret_cast<uint8_t *>(address+0x25C8E);
+						auto gfxParamSite=reinterpret_cast<uint8_t *>(address+0xB09B0);
+						auto vidParamSite=reinterpret_cast<uint8_t *>(address+0xBE8A0);
+
+						bool vcs2RemapSafe=size>0xBE8A0+sizeof(vcs2ParamFind) &&
+							patcher.solveSymbol<mach_vm_address_t>(index,"__ZN16IntelAccelerator19startGraphicsEngineEv",address,size)==address+0x25100;
+						patcher.clearError();
+
+						if (vcs2RemapSafe) {
+							if (!memcmp(engineTestSite,engineTestFind,sizeof(engineTestFind))) {
+								KernelPatcher::LookupPatch enginePatch {currentGraphics,engineTestFind,engineTestReplace,sizeof(engineTestFind),1};
+								patcher.applyLookupPatch(&enginePatch,engineTestSite,sizeof(engineTestFind)+1);
+								vcs2RemapSafe=patcher.getError()==KernelPatcher::Error::NoError && !memcmp(engineTestSite,engineTestReplace,sizeof(engineTestReplace));
+								patcher.clearError();
+							} else if (!memcmp(engineTestSite,engineTestReplace,sizeof(engineTestReplace))) {
+								// Already patched (e.g. by bootloader)
+							} else {
+								vcs2RemapSafe=false;
+							}
+						}
+						if (vcs2RemapSafe) {
+							if (!memcmp(gfxParamSite,vcs2ParamFind,sizeof(vcs2ParamFind))) {
+								KernelPatcher::LookupPatch gfxParamPatch {currentGraphics,vcs2ParamFind,vcs2ParamReplace,sizeof(vcs2ParamFind),1};
+								patcher.applyLookupPatch(&gfxParamPatch,gfxParamSite,sizeof(vcs2ParamFind)+1);
+								vcs2RemapSafe=patcher.getError()==KernelPatcher::Error::NoError && !memcmp(gfxParamSite,vcs2ParamReplace,sizeof(vcs2ParamReplace));
+								patcher.clearError();
+							} else if (!memcmp(gfxParamSite,vcs2ParamReplace,sizeof(vcs2ParamReplace))) {
+								// Already patched
+							} else {
+								vcs2RemapSafe=false;
+							}
+						}
+						if (vcs2RemapSafe) {
+							if (!memcmp(vidParamSite,vcs2ParamFind,sizeof(vcs2ParamFind))) {
+								KernelPatcher::LookupPatch vidParamPatch {currentGraphics,vcs2ParamFind,vcs2ParamReplace,sizeof(vcs2ParamFind),1};
+								patcher.applyLookupPatch(&vidParamPatch,vidParamSite,sizeof(vcs2ParamFind)+1);
+								vcs2RemapSafe=patcher.getError()==KernelPatcher::Error::NoError && !memcmp(vidParamSite,vcs2ParamReplace,sizeof(vcs2ParamReplace));
+								patcher.clearError();
+							} else if (!memcmp(vidParamSite,vcs2ParamReplace,sizeof(vcs2ParamReplace))) {
+								// Already patched
+							} else {
+								vcs2RemapSafe=false;
+							}
+						}
+						IORegistryEntry::getRegistryRoot()->setProperty("WEXVCS2MediaRemapReady",vcs2RemapSafe);
+						adlnObserved=adlnObserved && vcs2RemapSafe;
+					}
 				}
 				IORegistryEntry::getRegistryRoot()->setProperty("N97NativeObservationsRouted",adlnObserved);
 				IOLog("AlderLakeN native donor hooks=%u\n",adlnObserved);
@@ -14906,13 +14961,14 @@ void XE::wrapAlderLakeNNativeGPUInfo(IOService *that) {
 	auto a=reinterpret_cast<uint8_t *>(that);
 	// On VCS2-only hardware (video mask 4), VDBOX0 is fused off, leaving VCS0
 	// (bit 3) cleared while VCS2 (bit 4) and VECS0 (bit 5) remain set at +0x1300.
-	// SafeForceWakeMultithreaded(MEDIA) polls FORCEWAKE_ACK_MEDIA_VDBOX_GEN11(2)
-	// at 0xD54 instead of 0xD58 (kIGHwCsDesc[4]+0x75), causing a 30s timeout and
-	// hard lockup during startGraphicsEngine. Clear media engines on VCS2-only
-	// hardware unless -wex-vcs2-media is explicitly requested.
-	if (callbackXE->adlpRenderRequested && callbackXE->adlnVideoMask==4 &&
-	    !checkKernelArgument("-wex-vcs2-media")) {
-		*reinterpret_cast<uint64_t *>(a+0x1300)&=~0x38ULL;
+	// Retain VCS2 (bit 4) and VECS0 (bit 5) so IGScheduler allocates their command streamers
+	// for hardware video decode and enhancement. Clear only bit 3 (VCS0) unless VCS2 is explicitly disabled.
+	if (callbackXE->adlpRenderRequested && callbackXE->adlnVideoMask==4) {
+		if (checkKernelArgument("-wex-no-vcs2-media")) {
+			*reinterpret_cast<uint64_t *>(a+0x1300)&=~0x38ULL;
+		} else {
+			*reinterpret_cast<uint64_t *>(a+0x1300)&=~0x08ULL;
+		}
 	}
 	const uint64_t profile=uint64_t(*reinterpret_cast<uint32_t *>(a+0x1124))<<32 |
 		*reinterpret_cast<uint32_t *>(a+0x1164);
