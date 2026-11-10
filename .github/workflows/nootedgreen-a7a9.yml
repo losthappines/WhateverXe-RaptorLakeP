@@ -1,5 +1,7 @@
 name: NootedGreen A7A9 trial
 on:
+  push:
+    branches: [trial/nootedgreen-a7a9]
   workflow_dispatch:
 permissions:
   contents: read
