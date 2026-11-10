@@ -11712,7 +11712,7 @@ bool XE::processTGLAccelerator(KernelPatcher &patcher, size_t index, mach_vm_add
 					auto allocSite=reinterpret_cast<uint8_t *>(address+0x2A4CF);
 					bool vcs2Safe=size>0x2A505 &&
 						patcher.solveSymbol<mach_vm_address_t>(index,"__ZN16IntelAccelerator19PAVPCommandCallbackE22PAVPSessionCommandID_tjPjb",address,size)==address+0x29C50 &&
-						patcher.solveSymbol<mach_vm_address_t>(index,"__ZN16IntelAccelerator25describeDriverAllocationsEPKcP12OSDictionary",address,size)==address+0x2A43C &&
+						patcher.solveSymbol<mach_vm_address_t>(index,"__ZN16IntelAccelerator25describeDriverAllocationsEP21IOAccelAllocationInfo",address,size)==address+0x2A43C &&
 						!memcmp(pavpSite,pavpFind,sizeof(pavpFind)) &&
 						!memcmp(allocSite,allocFind,sizeof(allocFind));
 					patcher.clearError();
