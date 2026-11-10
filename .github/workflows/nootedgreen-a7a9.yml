@@ -1,0 +1,33 @@
+name: NootedGreen A7A9 trial
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15-intel
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: JulioNectar/Hackintosh-XPS13Plus-IrisXe-Tahoe
+          ref: 24450b476d7ca025b83c85d7b8362caf3234d2f2
+          path: ng
+          persist-credentials: false
+      - name: Apply scoped patch
+        run: git -C ng apply --check ../trial/nootedgreen-a7a9.patch && git -C ng apply ../trial/nootedgreen-a7a9.patch
+      - name: Build NootedGreen
+        run: cd ng && zsh build-nootedgreen.sh
+      - name: Verify and package
+        run: |
+          codesign --verify --deep ng/build/NootedGreen.kext
+          dwarfdump --uuid ng/build/NootedGreen.kext/Contents/MacOS/NootedGreen
+          ditto -c -k --keepParent ng/build/NootedGreen.kext NootedGreen-A7A9.zip
+          shasum -a 256 NootedGreen-A7A9.zip > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NootedGreen-A7A9
+          path: |
+            NootedGreen-A7A9.zip
+            SHA256SUMS

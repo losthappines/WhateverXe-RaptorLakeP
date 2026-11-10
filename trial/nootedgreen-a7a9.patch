@@ -1,0 +1,78 @@
+diff --git a/src/NootedGreen/kern_gen11.cpp b/src/NootedGreen/kern_gen11.cpp
+index dfb6507..aee13db 100755
+--- a/src/NootedGreen/kern_gen11.cpp
++++ b/src/NootedGreen/kern_gen11.cpp
+@@ -25,6 +25,13 @@ extern bool gXeLockRouted;
+ // layout só muda com ngreen-eu=80 (ou 64/48) e, opcional, ngreen-l3=N. Sem os args: 12 SS × 8 EU, L3 8, como antes.
+ // Dados de 80 EU (Linux, issue #3): i5-1340P = 5 DSS × 16 EU (máscara 0x1f, DSS0 presente) -> 10 SS × 8 EU.
+ // O steering MCR continua no DSS0 (presente nos chips de 80 EU vistos). ioreg: xe-topo = eu<<8 | l3 (no acelerador).
++// Opt-in render-only bring-up for the verified A7A9 VCS2-only topology.
++static bool gA7A9MediaGuardReady = false;
++static bool xeA7A9Requested() { return checkKernelArgument("-ngreen-a7a9-render"); }
++static bool xeA7A9Physical() {
++    auto *gpu = NGreen::callback ? NGreen::callback->iGPU : nullptr;
++    return gpu && gpu->configRead16(0) == 0x8086 && gpu->configRead16(2) == 0xA7A9;
++}
+ static uint32_t gTopoSs = 12, gTopoL3 = 8;
+ static bool gTopoParsed = false;
+ static void xeTopoArgs() {
+@@ -1932,6 +1939,37 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t
+ 		injectAcceleratorPersonality(true);
+ 		NGreen::callback->setRMMIOIfNecessary();
+ 		SYSLOG("ngreen", "V165: setRMMIO done, starting symbol resolve");
++        if (xeA7A9Requested()) {
++            // Fail closed before installing routes if the donor or hardware differs.
++            PANIC_COND(!xeA7A9Physical(), "ngreen", "A7A9 profile: physical PCI identity mismatch");
++            PANIC_COND(NGreen::callback->readReg32(0x9140) != 0x000E00FB ||
++                       NGreen::callback->readReg32(0x9118) != 0x44,
++                       "ngreen", "A7A9 profile: fuse signature mismatch");
++            const uint8_t pf[] = {0x8B,0x80,0xC0,0x82,0x10,0x00};
++            const uint8_t pr[] = {0x31,0xC0,0x90,0x90,0x90,0x90};
++            const uint8_t af[] = {0x49,0x8B,0xBF,0x78,0x12,0x00,0x00};
++            const uint8_t ar[] = {0xEB,0x34,0x90,0x90,0x90,0x90,0x90};
++            auto pavp = patcher.solveSymbol(index, "__ZN16IntelAccelerator19PAVPCommandCallbackE22PAVPSessionCommandID_tjPjb", address, size);
++            patcher.clearError();
++            auto alloc = patcher.solveSymbol(index, "__ZN16IntelAccelerator25describeDriverAllocationsEP21IOAccelAllocationInfo", address, size);
++            patcher.clearError();
++            auto *ps = reinterpret_cast<uint8_t *>(address + 0x29D08);
++            auto *as = reinterpret_cast<uint8_t *>(address + 0x2A4CF);
++            PANIC_COND(size <= 0x2A505 || pavp != address + 0x29C50 || alloc != address + 0x2A43C ||
++                       memcmp(ps, pf, sizeof(pf)) || memcmp(as, af, sizeof(af)),
++                       "ngreen", "A7A9 profile: media guard donor mismatch");
++            KernelPatcher::LookupPatch pp {activeKext, pf, pr, sizeof(pf), 1};
++            KernelPatcher::LookupPatch ap {activeKext, af, ar, sizeof(af), 1};
++            patcher.applyLookupPatch(&pp, ps, sizeof(pf)+1);
++            PANIC_COND(patcher.getError() != KernelPatcher::Error::NoError || memcmp(ps,pr,sizeof(pr)), "ngreen", "A7A9 PAVP patch failed");
++            patcher.clearError();
++            patcher.applyLookupPatch(&ap, as, sizeof(af)+1);
++            PANIC_COND(patcher.getError() != KernelPatcher::Error::NoError || memcmp(as,ar,sizeof(ar)), "ngreen", "A7A9 allocation patch failed");
++            patcher.clearError();
++            gA7A9MediaGuardReady = true;
++            IORegistryEntry::getRegistryRoot()->setProperty("NGA7A9MediaGuardReady", true);
++        }
++
+ 
+ 		// V144: Resolve the Blit3D context params struct and the ExtendedContext initWithOptions.
+ 		// Blit3DExtendedCtxParams is a static data symbol — address passed as param_2 to initWithOptions.
+@@ -6515,7 +6553,7 @@ uint8_t Gen11::deviceStart(void *that)
+ 	// returned false, preventing CoreDisplay from seeing a null accelerator device.
+ 	auto ret = FunctionCast(deviceStart, callback->odeviceStart)(that);
+ 	const bool isRealTGL = NGreen::callback && NGreen::callback->isRealTGL;
+-	if (!isRealTGL && !ret) {
++	if (!isRealTGL && !ret && !xeA7A9Requested()) {
+ 		SYSLOG("ngreen", "V111: IGAccelDevice::deviceStart returned false on RPL — forcing true");
+ 		return true;
+ 	}
+@@ -7380,6 +7418,12 @@ void Gen11::IGHardwareBlit3DContextinitialize(void *that)
+ // Esperado: Metal fica esperando a GPU (stamps) sem corromper memoria. Estado dos aneis e logado a cada chamada.
+ unsigned long Gen11::startGraphicsEngine(void *that)
+ {
++    if (xeA7A9Requested()) {
++        if (!xeA7A9Physical() || !gA7A9MediaGuardReady) return 0;
++        getMember<uint64_t>(that, 0x1300) &= ~0x38ULL;
++        IORegistryEntry::getRegistryRoot()->setProperty("NGA7A9RenderOnly", true);
++    }
++
+ 	static int startCount = 0;
+ 
+ 	if (xeEngineInertOn()) {
