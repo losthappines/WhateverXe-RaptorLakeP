@@ -11731,8 +11731,8 @@ bool XE::processTGLAccelerator(KernelPatcher &patcher, size_t index, mach_vm_add
 					IORegistryEntry::getRegistryRoot()->setProperty("WEXVCS2MediaNullGuardReady",vcs2Safe);
 					adlnObserved=adlnObserved && vcs2Safe;
 
-					// Option B: Remap media engine to VCS2 (engine 4, subEngineIndex 2)
-					if (!checkKernelArgument("-wex-no-vcs2-media")) {
+					// Option B: Remap media engine to VCS2 (engine 4, subEngineIndex 2) when -wex-vcs2-media is enabled
+					if (checkKernelArgument("-wex-vcs2-media")) {
 						const uint8_t engineTestFind[] {0x41,0xF6,0x85,0x00,0x13,0x00,0x00,0x08};
 						const uint8_t engineTestReplace[] {0x41,0xF6,0x85,0x00,0x13,0x00,0x00,0x18};
 						const uint8_t vcs2ParamFind[] {0x03,0x00,0x08,0x00,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00};
@@ -14962,13 +14962,10 @@ void XE::wrapAlderLakeNNativeGPUInfo(IOService *that) {
 	// On VCS2-only hardware (video mask 4), VDBOX0 is fused off, leaving VCS0
 	// (bit 3) cleared while VCS2 (bit 4) and VECS0 (bit 5) remain set at +0x1300.
 	// Retain VCS2 (bit 4) and VECS0 (bit 5) so IGScheduler allocates their command streamers
-	// for hardware video decode and enhancement. Clear only bit 3 (VCS0) unless VCS2 is explicitly disabled.
-	if (callbackXE->adlpRenderRequested && callbackXE->adlnVideoMask==4) {
-		if (checkKernelArgument("-wex-no-vcs2-media")) {
-			*reinterpret_cast<uint64_t *>(a+0x1300)&=~0x38ULL;
-		} else {
-			*reinterpret_cast<uint64_t *>(a+0x1300)&=~0x08ULL;
-		}
+	// for hardware video decode and enhancement when -wex-vcs2-media is requested.
+	if (callbackXE->adlpRenderRequested && callbackXE->adlnVideoMask==4 &&
+	    !checkKernelArgument("-wex-vcs2-media")) {
+		*reinterpret_cast<uint64_t *>(a+0x1300)&=~0x38ULL;
 	}
 	const uint64_t profile=uint64_t(*reinterpret_cast<uint32_t *>(a+0x1124))<<32 |
 		*reinterpret_cast<uint32_t *>(a+0x1164);
