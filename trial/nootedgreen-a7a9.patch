@@ -1,8 +1,8 @@
 diff --git a/src/NootedGreen/kern_gen11.cpp b/src/NootedGreen/kern_gen11.cpp
-index dfb6507..aee13db 100755
+index dfb6507..bd2c91f 100755
 --- a/src/NootedGreen/kern_gen11.cpp
 +++ b/src/NootedGreen/kern_gen11.cpp
-@@ -25,6 +25,13 @@ extern bool gXeLockRouted;
+@@ -25,6 +25,12 @@ extern bool gXeLockRouted;
  // layout só muda com ngreen-eu=80 (ou 64/48) e, opcional, ngreen-l3=N. Sem os args: 12 SS × 8 EU, L3 8, como antes.
  // Dados de 80 EU (Linux, issue #3): i5-1340P = 5 DSS × 16 EU (máscara 0x1f, DSS0 presente) -> 10 SS × 8 EU.
  // O steering MCR continua no DSS0 (presente nos chips de 80 EU vistos). ioreg: xe-topo = eu<<8 | l3 (no acelerador).
@@ -10,13 +10,12 @@ index dfb6507..aee13db 100755
 +static bool gA7A9MediaGuardReady = false;
 +static bool xeA7A9Requested() { return checkKernelArgument("-ngreen-a7a9-render"); }
 +static bool xeA7A9Physical() {
-+    auto *gpu = NGreen::callback ? NGreen::callback->iGPU : nullptr;
-+    return gpu && gpu->configRead16(0) == 0x8086 && gpu->configRead16(2) == 0xA7A9;
++    return NGreen::callback && NGreen::callback->isPhysicalA7A9();
 +}
  static uint32_t gTopoSs = 12, gTopoL3 = 8;
  static bool gTopoParsed = false;
  static void xeTopoArgs() {
-@@ -1932,6 +1939,37 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t
+@@ -1932,6 +1938,37 @@ bool Gen11::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t
  		injectAcceleratorPersonality(true);
  		NGreen::callback->setRMMIOIfNecessary();
  		SYSLOG("ngreen", "V165: setRMMIO done, starting symbol resolve");
@@ -54,7 +53,7 @@ index dfb6507..aee13db 100755
  
  		// V144: Resolve the Blit3D context params struct and the ExtendedContext initWithOptions.
  		// Blit3DExtendedCtxParams is a static data symbol — address passed as param_2 to initWithOptions.
-@@ -6515,7 +6553,7 @@ uint8_t Gen11::deviceStart(void *that)
+@@ -6515,7 +6552,7 @@ uint8_t Gen11::deviceStart(void *that)
  	// returned false, preventing CoreDisplay from seeing a null accelerator device.
  	auto ret = FunctionCast(deviceStart, callback->odeviceStart)(that);
  	const bool isRealTGL = NGreen::callback && NGreen::callback->isRealTGL;
@@ -63,7 +62,7 @@ index dfb6507..aee13db 100755
  		SYSLOG("ngreen", "V111: IGAccelDevice::deviceStart returned false on RPL — forcing true");
  		return true;
  	}
-@@ -7380,6 +7418,12 @@ void Gen11::IGHardwareBlit3DContextinitialize(void *that)
+@@ -7380,6 +7417,12 @@ void Gen11::IGHardwareBlit3DContextinitialize(void *that)
  // Esperado: Metal fica esperando a GPU (stamps) sem corromper memoria. Estado dos aneis e logado a cada chamada.
  unsigned long Gen11::startGraphicsEngine(void *that)
  {
@@ -76,3 +75,15 @@ index dfb6507..aee13db 100755
  	static int startCount = 0;
  
  	if (xeEngineInertOn()) {
+diff --git a/src/NootedGreen/kern_green.hpp b/src/NootedGreen/kern_green.hpp
+index c279582..21f19d8 100755
+--- a/src/NootedGreen/kern_green.hpp
++++ b/src/NootedGreen/kern_green.hpp
+@@ -283,6 +283,7 @@ class NGreen {
+     bool isRealTGL = false;  // true if CPU is genuine TGL (model 0x8C/0x8D), false if spoofed (RPL/ADL)
+ public:
+     bool getIsRealTGL() const { return isRealTGL; }
++    bool isPhysicalA7A9() const { return iGPU && iGPU->configRead16(0) == 0x8086 && iGPU->configRead16(2) == 0xA7A9; }
+     uint64_t mmioLength() const { return (rmmio && rmmioPtr) ? rmmio->getLength() : 0; }  // xe/rc6fw (22/10)
+ private:
+     bool dmcIsAdlp = false;    // true when ADL-P DMC blob was loaded in hwInitializeCState
