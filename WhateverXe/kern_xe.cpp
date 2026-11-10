@@ -83,6 +83,7 @@
 #include "kern_tgl_hang_select.hpp"
 #include "kern_tgl_recovery.hpp"
 #include "kern_tgl_aux_call.hpp"
+#include "kern_xelp_probe.hpp"
 
 #include <Headers/kern_api.hpp>
 #include <Headers/kern_cpu.hpp>
@@ -4572,6 +4573,60 @@ bool XE::isIntelProvider(size_t index) const {
     return requiresIntelProvider() && kextAppleIntelTGLCompat.loadIndex==index;
 }
 
+namespace {
+static XELP::ProbeBinding xelpFallbackProbeBinding;
+static uint32_t xelpFallbackProbeBindingState;
+struct XELPFallbackProbeIO {
+    void *access;
+    bool readable(uint32_t offset) const {
+        const auto bytes=Display13FBMemory::field<uint32_t>(access,0x60);
+        return Display13FBMemory::field<uintptr_t>(access,0x50) && bytes>=4 && offset<=bytes-4;
+    }
+    uint32_t read(uint32_t offset) const {
+        if(!readable(offset))return 0;
+        auto base=Display13FBMemory::field<volatile uint8_t *>(access,0x50);
+        return *reinterpret_cast<volatile uint32_t *>(base+offset);
+    }
+};
+static uint32_t xelpFallbackProbeCapabilities(uint32_t schema,uint32_t configABI) {
+    return schema==XELP::ProbeCapabilityABI && configABI==XELP::ProbeABI ?
+        XELP::ProbeDisplay13ComboDP|XELP::ProbeDisplay13FixedTC|XELP::ProbeDisplay13FixedDP|XELP::ProbeDisplay13Panel|XELP::ProbeDisplay13DPAlt : 0;
+}
+static bool xelpFallbackConfigureDisplay(void *controller,const XELP::ProbeConfig *config) {
+    if(!controller || !config || !config->valid())return false;
+    auto service=static_cast<IOService *>(controller);
+    if(service->getMetaClass()->getClassSize()<0x1C20)return false;
+    auto pci=OSDynamicCast(IOPCIDevice,service->getProvider());
+    if(!pci || !XELP::same(config->profile,XELP::deviceProfile(pci)))return false;
+    auto access=Display13FBMemory::field<OSObject *>(controller,0xC40);
+    auto platform=Display13FBMemory::field<uint8_t *>(controller,0xD40);
+    auto map=OSDynamicCast(IOMemoryMap,Display13FBMemory::field<OSObject *>(controller,0xC70));
+    if(!access || access->getMetaClass()->getClassSize()<0x68 || !platform || platform[0x12]!=9 ||
+        !map || map->getLength()!=0x1000000 || !map->getVirtualAddress() ||
+        Display13FBMemory::field<uintptr_t>(access,0x50)!=map->getVirtualAddress() ||
+        Display13FBMemory::field<uint32_t>(access,0x60)!=map->getLength())return false;
+    const XELP::ProbeBinding candidate {reinterpret_cast<uintptr_t>(controller),reinterpret_cast<uintptr_t>(access),
+        reinterpret_cast<uintptr_t>(platform),*config};
+    if(__atomic_load_n(&xelpFallbackProbeBindingState,__ATOMIC_ACQUIRE)==2)return xelpFallbackProbeBinding.sameBinding(candidate);
+    if(!__sync_bool_compare_and_swap(&xelpFallbackProbeBindingState,0,1))return false;
+    service->retain();access->retain();map->retain();
+    xelpFallbackProbeBinding=candidate;
+    __atomic_store_n(&xelpFallbackProbeBindingState,2,__ATOMIC_RELEASE);
+    return true;
+}
+static uint32_t xelpFallbackProbePort(void *port) {
+    if(!port || __atomic_load_n(&xelpFallbackProbeBindingState,__ATOMIC_ACQUIRE)!=2)return 0;
+    if(static_cast<OSObject *>(port)->getMetaClass()->getClassSize()<0x6B0)return 0;
+    auto access=Display13FBMemory::field<void *>(port,0x578);
+    auto config=Display13FBMemory::field<const uint32_t *>(port,0x548);
+    const auto pointer=reinterpret_cast<uintptr_t>(config);
+    if(pointer<xelpFallbackProbeBinding.platform+0x20 || pointer>=xelpFallbackProbeBinding.platform+0x20+9*24 ||
+        (pointer-xelpFallbackProbeBinding.platform-0x20)%24 || access!=reinterpret_cast<void *>(xelpFallbackProbeBinding.access))return 0;
+    XELPFallbackProbeIO io {access};
+    return XELP::probeMode(io,xelpFallbackProbeBinding,reinterpret_cast<uintptr_t>(access),pointer,config);
+}
+}
+
 bool XE::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t address, size_t size) {
     // No full donor patch set or native display/GT dispatcher in this stage.
     if(adlpLoadOnly) {
@@ -4600,6 +4655,18 @@ bool XE::processKext(KernelPatcher &patcher, size_t index, mach_vm_address_t add
                 XELP::display13DPAltProbeCapable(reinterpret_cast<XELP::QueryProbeCapabilities>(query));
             display13TCDPProbeReady=query>=address && query-address<size &&
                 XELP::display13TCDPProbeCapable(reinterpret_cast<XELP::QueryProbeCapabilities>(query));
+        } else if(probe>=address && probe-address<size && display13FramebufferRequested) {
+            // Compatibility fallback when an older AppleIntelTGLCompat (e.g. 0.6.1)
+            // is installed in /Library/Extensions that lacks _xelpConfigureDisplay.
+            xelpProviderProbe=reinterpret_cast<mach_vm_address_t>(xelpFallbackProbePort);
+            xelpProviderConfigureProbe=reinterpret_cast<mach_vm_address_t>(xelpFallbackConfigureDisplay);
+            const auto query=reinterpret_cast<XELP::QueryProbeCapabilities>(xelpFallbackProbeCapabilities);
+            display13DPProbeReady=XELP::display13ProbeCapable(query);
+            display13PanelProbeReady=XELP::display13PanelProbeCapable(query);
+            display13TCProbeReady=XELP::display13TCProbeCapable(query);
+            display13DPAltProbeReady=XELP::display13DPAltProbeCapable(query);
+            display13TCDPProbeReady=XELP::display13TCDPProbeCapable(query);
+            IORegistryEntry::getRegistryRoot()->setProperty("XELPProviderFallbackActive",true);
         }
         IORegistryEntry::getRegistryRoot()->setProperty("XELPDisplay13DPProbeAvailable",display13DPProbeReady);
         IORegistryEntry::getRegistryRoot()->setProperty("XELPDisplay13TCProbeAvailable",display13TCProbeReady);
@@ -11629,6 +11696,41 @@ bool XE::processTGLAccelerator(KernelPatcher &patcher, size_t index, mach_vm_add
 					adlnObserved=adlnObserved && patcher.solveSymbol<mach_vm_address_t>(index,native[i].symbol,address,size)==address+offsets[i];
 				patcher.clearError();
 				adlnObserved=adlnObserved && patcher.routeMultiple(index,native,arrsize(native),address,size);
+				if (adlnObserved && adlpRenderRequested && adlnVideoMask==4) {
+					// When VCS0 (bit 3) is fused off on VCS2-only hardware (video mask 4),
+					// startGraphicsEngine skips creating fMediaContext (+0x1278 = nullptr).
+					// PAVPCommandCallback (0x29D08) reads 0x1082C0 (PAVPC) and, if bits 2:1
+					// are set by BIOS, sets fPavpEnabled = 1 and dereferences nullptr + 0xB8.
+					// Force the PAVPC read at 0x29D08 to 0 so PAVPCommandCallback takes its
+					// native fPavpEnabled == 0 path, and skip the unguarded fMediaContext
+					// dereference in describeDriverAllocations (0x2A4CF..0x2A505).
+					const uint8_t pavpFind[] {0x8B,0x80,0xC0,0x82,0x10,0x00};
+					const uint8_t pavpReplace[] {0x31,0xC0,0x90,0x90,0x90,0x90};
+					const uint8_t allocFind[] {0x49,0x8B,0xBF,0x78,0x12,0x00,0x00};
+					const uint8_t allocReplace[] {0xEB,0x34,0x90,0x90,0x90,0x90,0x90};
+					auto pavpSite=reinterpret_cast<uint8_t *>(address+0x29D08);
+					auto allocSite=reinterpret_cast<uint8_t *>(address+0x2A4CF);
+					bool vcs2Safe=size>0x2A505 &&
+						patcher.solveSymbol<mach_vm_address_t>(index,"__ZN16IntelAccelerator19PAVPCommandCallbackE22PAVPSessionCommandID_tjPjb",address,size)==address+0x29C50 &&
+						patcher.solveSymbol<mach_vm_address_t>(index,"__ZN16IntelAccelerator25describeDriverAllocationsEPKcP12OSDictionary",address,size)==address+0x2A43C &&
+						!memcmp(pavpSite,pavpFind,sizeof(pavpFind)) &&
+						!memcmp(allocSite,allocFind,sizeof(allocFind));
+					patcher.clearError();
+					if (vcs2Safe) {
+						KernelPatcher::LookupPatch pavpPatch {currentGraphics,pavpFind,pavpReplace,sizeof(pavpFind),1};
+						patcher.applyLookupPatch(&pavpPatch,pavpSite,sizeof(pavpFind)+1);
+						vcs2Safe=patcher.getError()==KernelPatcher::Error::NoError && !memcmp(pavpSite,pavpReplace,sizeof(pavpReplace));
+						patcher.clearError();
+					}
+					if (vcs2Safe) {
+						KernelPatcher::LookupPatch allocPatch {currentGraphics,allocFind,allocReplace,sizeof(allocFind),1};
+						patcher.applyLookupPatch(&allocPatch,allocSite,sizeof(allocFind)+1);
+						vcs2Safe=patcher.getError()==KernelPatcher::Error::NoError && !memcmp(allocSite,allocReplace,sizeof(allocReplace));
+						patcher.clearError();
+					}
+					IORegistryEntry::getRegistryRoot()->setProperty("WEXVCS2MediaNullGuardReady",vcs2Safe);
+					adlnObserved=adlnObserved && vcs2Safe;
+				}
 				IORegistryEntry::getRegistryRoot()->setProperty("N97NativeObservationsRouted",adlnObserved);
 				IOLog("AlderLakeN native donor hooks=%u\n",adlnObserved);
 			}
